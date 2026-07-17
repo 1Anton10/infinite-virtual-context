@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0 — 2026-07-17
+
+### Any-backend virtual context (honest matrix)
+
+- Documented **what works where**: plugin OmniCore (full) vs Ollama/remote (pack) vs DIY OpenAI-compatible (`packWorkingSet`) vs raw GGUF (no auto)
+- Added **`packWorkingSet`** alias of `packForGpu` for multi-backend connectors
+- README: connect table for Local AI settings + llama.cpp / LM Studio / vLLM examples
+- Clarified: virtual context is prompt-side — **any GGUF** under OmniCore; not automatic for apps without a packer
+
 ## 1.1.0 — 2026-07-17
 
 ### Better with OmniCore (lean working set)

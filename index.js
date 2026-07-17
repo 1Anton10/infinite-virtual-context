@@ -160,6 +160,15 @@ function packForGpu(vault, opts = {}) {
   };
 }
 
+/**
+ * Same contract as Local AI plugin `packWorkingSetMessages`:
+ * OpenAI-style messages[] for ANY chat backend (Ollama, llama.cpp server, remote API, OmniCore).
+ * Alias of packForGpu for clearer multi-backend docs.
+ */
+function packWorkingSet(vault, opts = {}) {
+  return packForGpu(vault, opts);
+}
+
 function markersIn(text) {
   const re = /UNIQUE_[A-Z0-9_]+|FACT_[A-Z0-9_]+/g;
   const s = new Set();
@@ -181,6 +190,7 @@ function assertMarkersPreserved(beforeMessages, afterMessages) {
 module.exports = {
   ContextVault,
   packForGpu,
+  packWorkingSet,
   bodyHash,
   estTok,
   extractKeywords,

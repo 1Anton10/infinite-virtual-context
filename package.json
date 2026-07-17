@@ -1,7 +1,7 @@
 ﻿{
   "name": "infinite-virtual-context",
-  "version": "1.1.0",
-  "description": "100K+ virtual context vault for local LLM agents — GPU working set + append-only bodyHash; OmniCore lean path",
+  "version": "1.2.0",
+  "description": "100K+ virtual context vault — GPU working set for any OpenAI-style model; OmniCore lean path + Ollama/remote pack",
   "main": "index.js",
   "scripts": {
     "test": "node test.js"
