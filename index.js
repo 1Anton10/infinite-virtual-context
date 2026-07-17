@@ -89,6 +89,51 @@ class ContextVault {
     });
   }
 
+  /**
+   * Ingest huge TZ / markdown (100K–1M tok) as many lossless chunks.
+   * GPU never sees the full blob — only packForGpu retrieves relevant slices.
+   */
+  ingestLarge(text, meta = {}) {
+    const body = String(text || '');
+    if (!body) return [];
+    const chunkChars = Math.max(800, Number(meta.chunkChars) || 6000); // ~1.5K tok
+    const title = meta.title || meta.sourceRel || 'large-doc';
+    const ids = [];
+    let part = 0;
+    for (let i = 0; i < body.length; i += chunkChars) {
+      part += 1;
+      const slice = body.slice(i, i + chunkChars);
+      ids.push(
+        this.add({
+          kind: meta.kind || 'doc',
+          title: `${title}#${part}`,
+          body: slice,
+          summary: slice.replace(/\s+/g, ' ').slice(0, 220),
+          sourceRel: meta.sourceRel || '',
+          pinned: part === 1 && !!meta.pinFirst,
+        })
+      );
+    }
+    // Overview chunk so the model always knows the doc exists
+    ids.unshift(
+      this.add({
+        kind: 'doc-map',
+        title: `${title} [map]`,
+        body: `Document "${title}" ingested as ${part} chunks (~${estTok(body)} tok). Use recall by keyword; do not demand full dump.`,
+        summary: `${title}: ${part} parts, ~${estTok(body)} tok virtual`,
+        pinned: true,
+        sourceRel: meta.sourceRel || '',
+      })
+    );
+    return ids;
+  }
+
+  setVirtualTarget(n) {
+    const v = Number(n) || 100000;
+    this.virtualTarget = Math.max(10000, Math.min(v, 5000000));
+    return this.virtualTarget;
+  }
+
   virtualTokens() {
     let n = 0;
     for (const c of this.chunks.values()) n += c.fullTok || estTok(c.body);
