@@ -11,7 +11,7 @@ npm install
 npm test
 ```
 
-Node 18+. No GPU required for the vault itself (pairs with Ollama / OmniCore / any OpenAI-compatible backend).
+Node 18+. No GPU required for the vault itself (pairs with OmniCore or any OpenAI-compatible chat API).
 
 ```js
 const { ContextVault, packForGpu, bodyHash } = require('infinite-virtual-context');
@@ -33,17 +33,17 @@ const { messages, stats } = packForGpu(vault, {
 
 | Backend | How |
 |---------|-----|
-| **Ollama** | Build `messages` via `packForGpu`, POST `/api/chat` with that array |
 | **OmniCore** | Same messages; or send vault chunks over `SYNC_CTX` JSON stdin |
-| **OpenAI / llama.cpp server** | `chat.completions` with `messages` from `packForGpu` |
+| **OpenAI-compatible / llama.cpp server** | `chat.completions` with `messages` from `packForGpu` |
 | **VS Code Local AI plugin** | Built-in (`ContextVault` + `virtualCtxTarget: 100000`) |
+| Any local OpenAI-style API | POST chat with `messages` from `packForGpu` |
 
 ```js
-// Ollama example
-const res = await fetch('http://127.0.0.1:11434/api/chat', {
+// Example: OpenAI-compatible local endpoint
+const res = await fetch('http://127.0.0.1:8080/v1/chat/completions', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ model: 'qwen2.5-coder:14b', messages, stream: false }),
+  body: JSON.stringify({ model: 'local', messages, stream: false }),
 });
 ```
 
