@@ -1,0 +1,12 @@
+{
+  "name": "infinite-virtual-context",
+  "version": "1.0.0",
+  "description": "100K virtual context vault for local LLM agents — GPU slice + append-only integrity",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "keywords": ["llm", "context", "vault", "ollama", "omnicore", "agent"],
+  "license": "MIT",
+  "engines": { "node": ">=18" }
+}
