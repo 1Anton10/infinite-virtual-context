@@ -1,5 +1,11 @@
 'use strict';
 
+/**
+ * infinite-virtual-context — independent add-on for any OpenAI-style chat AI.
+ * Vault holds 100K+ virtual tokens; GPU sees a packed working set (~8K).
+ * No OmniCore / Ollama / plugin required — wrap any messages[] endpoint.
+ */
+
 const crypto = require('crypto');
 
 function estTok(text) {
@@ -69,6 +75,20 @@ class ContextVault {
     });
   }
 
+  /** Ingest a plain text / file / chat turn into the vault. */
+  remember(input, meta = {}) {
+    if (input == null) return null;
+    if (typeof input === 'object' && input.body != null) return this.add({ ...meta, ...input });
+    return this.add({
+      kind: meta.kind || 'note',
+      title: meta.title || meta.id || 'memory',
+      body: String(input),
+      pinned: !!meta.pinned,
+      sourceRel: meta.sourceRel || meta.path || '',
+      id: meta.id,
+    });
+  }
+
   virtualTokens() {
     let n = 0;
     for (const c of this.chunks.values()) n += c.fullTok || estTok(c.body);
@@ -120,10 +140,11 @@ function scoreChunk(chunk, task) {
 
 function packForGpu(vault, opts = {}) {
   const budget = opts.gpuBudget || vault.gpuBudget || 8192;
-  const system = opts.system || 'You are a coding agent with tools.';
+  const system = opts.system || 'You are a helpful assistant with a virtual context vault.';
   const user = opts.user || '';
   const task = opts.task || user;
   const history = opts.history || [];
+  const keepRecent = Math.max(2, Number(opts.keepRecent) || 6);
 
   const ranked = [...vault.chunks.values()].sort(
     (a, b) => scoreChunk(b, task) - scoreChunk(a, task)
@@ -142,9 +163,15 @@ function packForGpu(vault, opts = {}) {
     .map((c) => `[ctx:${c.id}] ${c.title}\n${c.body.slice(0, 4000)}`)
     .join('\n\n');
 
+  const banner = ctxBlock
+    ? `\n\n--- VIRTUAL CONTEXT (GPU slice ~${used} tok / vault ${vault.virtualTokens()}) ---\n` +
+      `Full vault is lossless; this is a ranked working set only.\n` +
+      ctxBlock
+    : '';
+
   const messages = [
-    { role: 'system', content: system + (ctxBlock ? `\n\n--- VAULT SLICE ---\n${ctxBlock}` : '') },
-    ...history.slice(-6),
+    { role: 'system', content: system + banner },
+    ...history.slice(-keepRecent),
     { role: 'user', content: user },
   ];
 
@@ -160,13 +187,71 @@ function packForGpu(vault, opts = {}) {
   };
 }
 
-/**
- * Same contract as Local AI plugin `packWorkingSetMessages`:
- * OpenAI-style messages[] for ANY chat backend (Ollama, llama.cpp server, remote API, OmniCore).
- * Alias of packForGpu for clearer multi-backend docs.
- */
 function packWorkingSet(vault, opts = {}) {
   return packForGpu(vault, opts);
+}
+
+/**
+ * Drop-in: take an existing OpenAI-style messages[] + vault → slim GPU messages[].
+ * Use this to wrap any agent that already built messages.
+ */
+function packMessages(messages, vault, opts = {}) {
+  const list = Array.isArray(messages) ? messages.filter((m) => m && m.content != null) : [];
+  const budget = opts.gpuBudget || (vault && vault.gpuBudget) || 8192;
+  const keepRecent = Math.max(2, Number(opts.keepRecent) || 6);
+
+  const sys = list.find((m) => m.role === 'system');
+  const nonSys = list.filter((m) => m.role !== 'system');
+  const lastUser = [...nonSys].reverse().find((m) => m.role === 'user');
+  const task = opts.task || (lastUser && lastUser.content) || '';
+
+  const systemBase = sys ? String(sys.content) : opts.system || 'You are a helpful assistant.';
+  const history = nonSys.slice(0, -1);
+  const user = lastUser ? String(lastUser.content) : opts.user || '';
+
+  if (!vault || !vault.chunks || vault.chunks.size === 0) {
+    return {
+      messages: list.slice(-(keepRecent + 1)),
+      stats: { virtualTok: 0, gpuTok: estTok(JSON.stringify(list)), skipped: true },
+    };
+  }
+
+  // Avoid double-inject if caller already packed
+  if (/--- VIRTUAL CONTEXT|--- VAULT SLICE ---/i.test(systemBase)) {
+    return {
+      messages: [
+        { role: 'system', content: systemBase },
+        ...nonSys.slice(-keepRecent),
+      ],
+      stats: {
+        virtualTok: vault.virtualTokens(),
+        gpuTok: estTok(systemBase) + nonSys.slice(-keepRecent).reduce((n, m) => n + estTok(m.content), 0),
+        alreadyPacked: true,
+        integrity: vault.verifyIntegrity().ok,
+      },
+    };
+  }
+
+  const packed = packForGpu(vault, {
+    system: systemBase,
+    user: user || '(continue)',
+    history: history.slice(-(keepRecent - 1)),
+    task,
+    gpuBudget: budget,
+    keepRecent,
+  });
+  return packed;
+}
+
+/** Rewrite an OpenAI chat.completions request body in-place-safe copy. */
+function rewriteChatRequest(body, vault, opts = {}) {
+  const src = body && typeof body === 'object' ? body : {};
+  const packed = packMessages(src.messages || [], vault, opts);
+  return {
+    ...src,
+    messages: packed.messages,
+    _virtualContext: packed.stats,
+  };
 }
 
 function markersIn(text) {
@@ -187,10 +272,125 @@ function assertMarkersPreserved(beforeMessages, afterMessages) {
   return { ok: missing.length === 0, missing, beforeCount: before.size };
 }
 
+/**
+ * Independent add-on handle. Plug into any AI:
+ *   const vc = attach({ gpuBudget: 8192 })
+ *   vc.remember(bigFile)
+ *   const res = await vc.chat.completions.create({ model, messages })
+ */
+function attach(opts = {}) {
+  const vault =
+    opts.vault instanceof ContextVault
+      ? opts.vault
+      : new ContextVault({
+          virtualTarget: opts.virtualTarget || 100000,
+          gpuBudget: opts.gpuBudget || 8192,
+        });
+
+  const baseUrl = String(opts.baseUrl || opts.apiBase || 'http://127.0.0.1:8080')
+    .replace(/\/+$/, '')
+    .replace(/\/v1$/i, '');
+  const apiKey = opts.apiKey || opts.token || process.env.OPENAI_API_KEY || '';
+  const defaultModel = opts.model || 'local';
+  const fetchImpl = opts.fetch || globalThis.fetch;
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('attach() needs fetch (Node 18+ or opts.fetch)');
+  }
+
+  async function chatCompletionsCreate(req = {}) {
+    const rewritten = rewriteChatRequest(
+      {
+        model: req.model || defaultModel,
+        ...req,
+      },
+      vault,
+      opts
+    );
+    const { _virtualContext, ...payload } = rewritten;
+    const url = `${baseUrl}/v1/chat/completions`;
+    const res = await fetchImpl(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        ...(opts.headers || {}),
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`chat.completions HTTP ${res.status}: ${errText.slice(0, 400)}`);
+    }
+    if (payload.stream) return res;
+    const json = await res.json();
+    json._virtualContext = _virtualContext;
+    return json;
+  }
+
+  /** Wrap global/custom fetch so any POST …/chat/completions is auto-packed. */
+  function wrapFetch(baseFetch = fetchImpl) {
+    return async function virtualFetch(input, init = {}) {
+      const url = typeof input === 'string' ? input : input && input.url;
+      const method = String((init && init.method) || 'GET').toUpperCase();
+      if (method === 'POST' && url && /chat\/completions/i.test(String(url))) {
+        let bodyObj = {};
+        try {
+          bodyObj = JSON.parse(init.body || '{}');
+        } catch (_) {}
+        const rewritten = rewriteChatRequest(bodyObj, vault, opts);
+        const { _virtualContext, ...payload } = rewritten;
+        const next = {
+          ...init,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(init.headers || {}),
+          },
+          body: JSON.stringify(payload),
+        };
+        const res = await baseFetch(input, next);
+        if (!payload.stream && res.ok) {
+          const clone = res.clone();
+          try {
+            const json = await clone.json();
+            if (json && typeof json === 'object') json._virtualContext = _virtualContext;
+          } catch (_) {}
+        }
+        return res;
+      }
+      return baseFetch(input, init);
+    };
+  }
+
+  return {
+    vault,
+    remember: (...args) => vault.remember(...args),
+    add: (...args) => vault.add(...args),
+    addFromTool: (...args) => vault.addFromTool(...args),
+    pack: (messages, packOpts) => packMessages(messages, vault, { ...opts, ...packOpts }),
+    rewrite: (body, packOpts) => rewriteChatRequest(body, vault, { ...opts, ...packOpts }),
+    wrapFetch,
+    chat: {
+      completions: {
+        create: chatCompletionsCreate,
+      },
+    },
+    /** Stats for UIs */
+    stats: () => ({
+      virtualTok: vault.virtualTokens(),
+      chunks: vault.chunks.size,
+      gpuBudget: vault.gpuBudget,
+      integrity: vault.verifyIntegrity().ok,
+    }),
+  };
+}
+
 module.exports = {
   ContextVault,
   packForGpu,
   packWorkingSet,
+  packMessages,
+  rewriteChatRequest,
+  attach,
   bodyHash,
   estTok,
   extractKeywords,

@@ -1,25 +1,25 @@
 # Changelog
 
+## 1.3.0 — 2026-07-17
+
+### Independent drop-in add-on
+
+- **`attach()`** — one call plugs virtual context into any OpenAI-compatible chat API (`chat.completions.create`, `wrapFetch`, `pack`, `remember`)
+- **`packMessages` / `rewriteChatRequest`** — wrap existing `messages[]` / request bodies without rebuilding your agent
+- **`proxy.js`** — zero-code HTTP sidecar: point any client at the proxy, packing is automatic
+- README rewritten: product = **independent supplement**, OmniCore optional — not a compatibility matrix of “maybe DIY”
+
 ## 1.2.0 — 2026-07-17
 
 ### Any-backend virtual context (honest matrix)
 
-- Documented **what works where**: plugin OmniCore (full) vs Ollama/remote (pack) vs DIY OpenAI-compatible (`packWorkingSet`) vs raw GGUF (no auto)
-- Added **`packWorkingSet`** alias of `packForGpu` for multi-backend connectors
-- README: connect table for Local AI settings + llama.cpp / LM Studio / vLLM examples
-- Clarified: virtual context is prompt-side — **any GGUF** under OmniCore; not automatic for apps without a packer
+- Documented what works where; added `packWorkingSet` alias
 
 ## 1.1.0 — 2026-07-17
 
-### Better with OmniCore (lean working set)
+### OmniCore lean path docs
 
-- Documented end-to-end contract with OmniCore Engine + Local AI plugin:
-  - GPU sees **packed working set** (~8K), not a full message dump
-  - Vault bodies stay **append-only** (`bodyHash`); SYNC_CTX is ranking-only
-  - Engine **chunked prefill** + **no silent prompt truncation**
-  - Overflow via `recall_context` / `read_file`, not KV inflation
-- README: before/after table, updated architecture diagram, lean-path proofs (`virtual-ctx-lean`)
-- Points at OmniCore warm TCP `:8742` attach path
+- Documented end-to-end contract with OmniCore Engine + Local AI plugin
 
 ## 1.0.0 — 2026-07-17
 

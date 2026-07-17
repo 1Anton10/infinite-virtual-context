@@ -2,6 +2,9 @@
 const {
   ContextVault,
   packForGpu,
+  packMessages,
+  rewriteChatRequest,
+  attach,
   bodyHash,
   assertMarkersPreserved,
 } = require('./index');
@@ -28,6 +31,28 @@ const packed = packForGpu(vault, { user: 'find FACT_PROOF', system: 'agent' });
 ok('gpu under budget', packed.stats.gpuTok <= 4096 + 500);
 ok('virtual large', packed.stats.virtualTok > 1000);
 ok('fact in pack', packed.messages[0].content.includes(FACT));
+
+const fromMsgs = packMessages(
+  [
+    { role: 'system', content: 'agent' },
+    { role: 'user', content: 'find FACT_PROOF' },
+  ],
+  vault
+);
+ok('packMessages has vault slice', /VIRTUAL CONTEXT|VAULT SLICE|FACT_PROOF/i.test(fromMsgs.messages[0].content));
+
+const rewritten = rewriteChatRequest(
+  { model: 'x', messages: [{ role: 'user', content: 'hi ' + FACT }] },
+  vault
+);
+ok('rewrite keeps model', rewritten.model === 'x');
+ok('rewrite has stats', rewritten._virtualContext && rewritten._virtualContext.virtualTok > 0);
+
+const ai = attach({ baseUrl: 'http://127.0.0.1:9', gpuBudget: 4096 });
+ai.remember('note ' + FACT, { id: 'n1', pinned: true });
+ok('attach remember', ai.stats().chunks >= 1);
+const packed2 = ai.pack([{ role: 'user', content: 'q' }]);
+ok('attach.pack', packed2.messages.length >= 1);
 
 const c = vault.chunks.get('a');
 c.body += 'MUT';

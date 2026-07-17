@@ -1,13 +1,16 @@
 ﻿{
   "name": "infinite-virtual-context",
-  "version": "1.2.0",
-  "description": "100K+ virtual context vault — GPU working set for any OpenAI-style model; OmniCore lean path + Ollama/remote pack",
+  "version": "1.3.0",
+  "description": "Independent virtual-context add-on for any OpenAI-style AI — attach(), pack, or HTTP proxy",
   "main": "index.js",
-  "scripts": {
-    "test": "node test.js"
+  "bin": {
+    "ivc-proxy": "proxy.js"
   },
-  "keywords": ["llm", "context", "vault", "omnicore", "agent"],
+  "scripts": {
+    "test": "node test.js",
+    "proxy": "node proxy.js"
+  },
+  "keywords": ["llm", "context", "vault", "openai", "addon", "proxy", "agent"],
   "license": "MIT",
   "engines": { "node": ">=18" }
 }
-
